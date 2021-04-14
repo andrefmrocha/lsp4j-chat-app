@@ -4,13 +4,14 @@
  * ------------------------------------------------------------------------------------------ */
 package io.typefox.lsp4j.chat.server;
 
+import io.typefox.lsp4j.chat.shared.ChatClient;
+import org.eclipse.lsp4j.jsonrpc.Launcher;
+
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-
-import io.typefox.lsp4j.chat.shared.ChatClient;
-import io.typefox.lsp4j.chat.shared.SocketLauncher;
 
 public class ChatServerLauncher {
 
@@ -28,7 +29,13 @@ public class ChatServerLauncher {
 					// wait for clients to connect
 					Socket socket = serverSocket.accept();
 					// create a JSON-RPC connection for the accepted socket
-					SocketLauncher<ChatClient> launcher = new SocketLauncher<>(chatServer, ChatClient.class, socket);
+					Launcher<ChatClient> launcher = new Launcher.Builder<ChatClient>()
+							.setRemoteInterface(ChatClient.class)
+							.setExecutorService(threadPool)
+							.setInput(socket.getInputStream())
+							.setOutput(socket.getOutputStream())
+							.setLocalService(chatServer)
+							.create();
 					// connect a remote chat client proxy to the chat server
 					Runnable removeClient = chatServer.addClient(launcher.getRemoteProxy());
                     /*
@@ -36,7 +43,14 @@ public class ChatServerLauncher {
                      * When the JSON-RPC connection is closed
                      * disconnect the remote client from the chat server.
                      */
-					launcher.startListening().thenRun(removeClient);
+					new Thread(() -> {
+						try {
+							launcher.startListening().get();
+							removeClient.run();
+						} catch (InterruptedException | ExecutionException e) {
+							e.printStackTrace();
+						}
+					}).start();
 				}
 			});
 			System.out.println("Enter any character to stop");

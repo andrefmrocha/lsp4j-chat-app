@@ -4,10 +4,13 @@
  * ------------------------------------------------------------------------------------------ */
 package io.typefox.lsp4j.chat.client;
 
-import java.net.Socket;
-
 import io.typefox.lsp4j.chat.shared.ChatServer;
-import io.typefox.lsp4j.chat.shared.SocketLauncher;
+import org.eclipse.lsp4j.jsonrpc.Launcher;
+
+import java.net.Socket;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 public class ChatClientLauncher {
 
@@ -20,16 +23,21 @@ public class ChatClientLauncher {
 		// connect to the server
 		try (Socket socket = new Socket(host, port)) {
 			// open a JSON-RPC connection for the opened socket
-			SocketLauncher<ChatServer> launcher = new SocketLauncher<>(chatClient, ChatServer.class, socket);
+			Launcher<ChatServer> launcher = new Launcher.Builder<ChatServer>()
+					.setRemoteInterface(ChatServer.class)
+					.setExecutorService(Executors.newSingleThreadExecutor())
+					.setInput(socket.getInputStream())
+					.setOutput(socket.getOutputStream())
+					.setLocalService(chatClient)
+					.create();
 			/*
-             * Start listening for incoming message.
-             * When the JSON-RPC connection is closed, 
-             * e.g. the server is died, 
-             * the client process should exit.
-             */
-			launcher.startListening().thenRun(() -> System.exit(0));
-			// start the chat session with a remote chat server proxy
+			 * Start listening for incoming messages.
+			 * When the JSON-RPC connection is closed
+			 * disconnect the remote client from the chat server.
+			 */
+			Future<Void> future = launcher.startListening();
 			chatClient.start(launcher.getRemoteProxy());
+			future.get();
 		}
 	}
 
